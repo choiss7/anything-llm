@@ -11,8 +11,11 @@
   },
   "scripts": {
     "lint": "cd server && yarn lint && cd ../frontend && yarn lint && cd ../collector && yarn lint",
-    "setup": "cd server && yarn && cd ../collector && yarn && cd ../frontend && yarn && cd .. && yarn setup:envs && yarn prisma:setup && echo \"Please run yarn dev:server, yarn dev:collector, and yarn dev:frontend in separate terminal tabs.\"",
+    "setup:win": "cd server && yarn && cd ../collector && yarn && cd ../frontend && yarn && cd .. && yarn setup:envs:win && yarn prisma:setup && echo \"Please run yarn dev:server, yarn dev:collector, and yarn dev:frontend in separate terminal tabs.\"",
+    "setup:unix": "cd server && yarn && cd ../collector && yarn && cd ../frontend && yarn && cd .. && yarn setup:envs:unix && yarn prisma:setup && echo \"Please run yarn dev:server, yarn dev:collector, and yarn dev:frontend in separate terminal tabs.\"",
     "setup:envs": "copy -n ./frontend/.env.example ./frontend/.env && copy -n ./server/.env.example ./server/.env.development && copy -n ./collector/.env.example ./collector/.env && copy -n ./docker/.env.example ./docker/.env && echo \"All ENV files copied!\n\"",
+    "setup:envs:win": "cmd /c \"copy .\\frontend\\.env.example .\\frontend\\.env && copy .\\server\\.env.example .\\server\\.env.development && copy .\\collector\\.env.example .\\collector\\.env && copy .\\docker\\.env.example .\\docker\\.env && echo All ENV files copied!\"",
+    "setup:envs:unix": "cp ./frontend/.env.example ./frontend/.env && cp ./server/.env.example ./server/.env.development && cp ./collector/.env.example ./collector/.env && cp ./docker/.env.example ./docker/.env && echo \"All ENV files copied!\"",
     "dev:server": "cd server && yarn dev",
     "dev:collector": "cd collector && yarn dev",
     "dev:frontend": "cd frontend && yarn dev",
