@@ -17,6 +17,10 @@ const { WorkspaceThread } = require("../models/workspaceThread");
 const { User } = require("../models/user");
 const truncate = require("truncate");
 
+function generateSystemPrompt(workspace) {
+  return `Welcome to ${workspace?.name || "the system"}. Chat with confidence!`;
+}
+
 function chatEndpoints(app) {
   if (!app) return;
 
@@ -36,7 +40,7 @@ function chatEndpoints(app) {
             textResponse: null,
             sources: [],
             close: true,
-            error: !message?.length ? "Message is empty." : null,
+            error: "Message is empty.",
           });
           return;
         }
@@ -59,6 +63,8 @@ function chatEndpoints(app) {
           return;
         }
 
+        const systemPrompt = generateSystemPrompt(workspace);
+
         await streamChatWithWorkspace(
           response,
           workspace,
@@ -68,6 +74,7 @@ function chatEndpoints(app) {
           null,
           attachments
         );
+
         await Telemetry.sendTelemetry("sent_chat_chatjs1", {
           multiUserMode: multiUserMode(response),
           LLMSelection: process.env.LLM_PROVIDER || "openai",
@@ -77,14 +84,15 @@ function chatEndpoints(app) {
           TTSSelection: process.env.TTS_PROVIDER || "native",
         });
 
-        // 로그에 입력과 출력 기록 추가
         await EventLogs.logEvent(
           "sent_chat_chatjs2",
           {
             workspaceName: workspace?.name,
             chatModel: workspace?.chatModel || "System Default",
-            input: { message, attachments }, // 입력 기록 추가
-            output: "Chat sent successfully." // 출력 기록 추가
+            input: { message, attachments },
+         
+            output: "Chat sent successfully.",
+            systemPrompt, // 추가된 systemPrompt
           },
           user?.id
         );
@@ -100,12 +108,11 @@ function chatEndpoints(app) {
           error: e.message,
         });
 
-        // 에러 발생 시에도 로그에 입력과 에러 메시지 기록
         await EventLogs.logEvent(
           "error",
           {
-            errorMessage: e.message, // 에러 메시지 기록
-            input: reqBody(request), // 요청 입력 기록
+            errorMessage: e.message,
+            input: reqBody(request),
           },
           null
         );
@@ -135,7 +142,7 @@ function chatEndpoints(app) {
             textResponse: null,
             sources: [],
             close: true,
-            error: !message?.length ? "Message is empty." : null,
+            error: "Message is empty.",
           });
           return;
         }
@@ -158,6 +165,8 @@ function chatEndpoints(app) {
           return;
         }
 
+        const systemPrompt = generateSystemPrompt(workspace);
+
         await streamChatWithWorkspace(
           response,
           workspace,
@@ -168,7 +177,6 @@ function chatEndpoints(app) {
           attachments
         );
 
-        // 스레드 이름 변경 처리 및 로그에 기록
         await WorkspaceThread.autoRenameThread({
           thread,
           workspace,
@@ -194,15 +202,15 @@ function chatEndpoints(app) {
           TTSSelection: process.env.TTS_PROVIDER || "native",
         });
 
-        // 로그에 입력과 출력 기록 추가
         await EventLogs.logEvent(
           "sent_chat_chatjs4",
           {
             workspaceName: workspace.name,
             thread: thread.name,
             chatModel: workspace?.chatModel || "System Default",
-            input: { message, attachments }, // 입력 기록 추가
-            output: "Chat sent successfully." // 출력 기록 추가
+            input: { message, attachments },           
+            output: "Chat sent successfully.",
+            systemPrompt, // 추가된 systemPrompt
           },
           user?.id
         );
@@ -218,12 +226,11 @@ function chatEndpoints(app) {
           error: e.message,
         });
 
-        // 에러 발생 시에도 로그에 입력과 에러 메시지 기록
         await EventLogs.logEvent(
           "error",
           {
-            errorMessage: e.message, // 에러 메시지 기록
-            input: reqBody(request), // 요청 입력 기록
+            errorMessage: e.message,
+            input: reqBody(request),
           },
           null
         );
