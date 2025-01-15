@@ -1,3 +1,6 @@
+// Workspaces/index.jsx - 워크스페이스 관리 페이지
+// 관리자용 워크스페이스 목록 및 관리 기능을 제공하는 컴포넌트
+
 import { useEffect, useState } from "react";
 import Sidebar from "@/components/SettingsSidebar";
 import { isMobile } from "react-device-detect";
@@ -12,9 +15,20 @@ import ModalWrapper from "@/components/ModalWrapper";
 import CTAButton from "@/components/lib/CTAButton";
 
 export default function AdminWorkspaces() {
+  // 모달 및 데이터 상태 관리
   const { isOpen, openModal, closeModal } = useModal();
-  const [workspaces, setWorkspaces] = useState([]);
-  const [loading, setLoading] = useState(true);
+  const [workspaces, setWorkspaces] = useState([]); // 워크스페이스 목록
+  const [loading, setLoading] = useState(true); // 로딩 상태
+
+  // 워크스페이스 데이터 로드
+  useEffect(() => {
+    async function fetchData() {
+      const _workspaces = await Admin.workspaces();
+      setWorkspaces(_workspaces);
+      setLoading(false);
+    }
+    fetchData();
+  }, []);
 
   return (
     <div className="w-screen h-screen overflow-hidden bg-theme-bg-container flex">
@@ -55,11 +69,13 @@ export default function AdminWorkspaces() {
   );
 }
 
+// 워크스페이스 목록을 표시하는 컨테이너 컴포넌트
 function WorkspacesContainer() {
   const [loading, setLoading] = useState(true);
-  const [users, setUsers] = useState([]);
-  const [workspaces, setWorkspaces] = useState([]);
+  const [users, setUsers] = useState([]); // 사용자 목록
+  const [workspaces, setWorkspaces] = useState([]); // 워크스페이스 목록
 
+  // 데이터 로드
   useEffect(() => {
     async function fetchData() {
       const _users = await Admin.users();

@@ -1,27 +1,26 @@
+// Main/index.jsx - 메인 페이지 컴포넌트
+// 애플리케이션의 메인 페이지를 구성하는 컴포넌트
+
 import React from "react";
-import DefaultChatContainer from "@/components/DefaultChat";
 import Sidebar from "@/components/Sidebar";
-import PasswordModal, { usePasswordModal } from "@/components/Modals/Password";
+import DefaultChat from "@/components/DefaultChat";
 import { isMobile } from "react-device-detect";
-import { FullScreenLoader } from "@/components/Preloader";
-import UserMenu from "@/components/UserMenu";
 
 export default function Main() {
-  const { loading, requiresAuth, mode } = usePasswordModal();
-
-  if (loading) return <FullScreenLoader />;
-  if (requiresAuth !== false) {
-    return <>{requiresAuth !== null && <PasswordModal mode={mode} />}</>;
-  }
+  // 모바일 여부에 따른 레이아웃 조정
+  const containerStyle = {
+    height: isMobile ? "100%" : "calc(100% - 32px)",
+  };
 
   return (
-    <>
-      <UserMenu>
-        <div className="w-screen h-screen overflow-hidden bg-theme-bg-container flex">
-          {!isMobile && <Sidebar />}
-          <DefaultChatContainer />
-        </div>
-      </UserMenu>
-    </>
+    <div className="w-screen h-screen overflow-hidden bg-theme-bg-container flex">
+      {/* 사이드바 컴포넌트 */}
+      <Sidebar />
+      
+      {/* 메인 채팅 영역 */}
+      <div style={containerStyle} className="flex-1 flex flex-col h-full">
+        <DefaultChat />
+      </div>
+    </div>
   );
 }
