@@ -1,3 +1,6 @@
+// DefaultChat/index.jsx - 기본 채팅 화면 컴포넌트
+// 초기 채팅 화면과 웰컴 메시지를 표시하는 메인 컴포넌트
+
 import React, { useEffect, useState } from "react";
 import {
   GithubLogo,
@@ -20,18 +23,20 @@ import { useTranslation, Trans } from "react-i18next";
 import Appearance from "@/models/appearance";
 
 export default function DefaultChatContainer() {
-  const { showScrollbar } = Appearance.getSettings();
-  const [mockMsgs, setMockMessages] = useState([]);
-  const { user } = useUser();
-  const [fetchedMessages, setFetchedMessages] = useState([]);
+  // 앱 설정 및 상태 관리
+  const { showScrollbar } = Appearance.getSettings(); // 스크롤바 표시 설정
+  const [mockMsgs, setMockMessages] = useState([]); // 가상 메시지 상태
+  const { user } = useUser(); // 현재 로그인한 사용자 정보
+  const [fetchedMessages, setFetchedMessages] = useState([]); // 서버에서 가져온 메시지
   const {
     showing: showingNewWsModal,
     showModal: showNewWsModal,
     hideModal: hideNewWsModal,
   } = useNewWorkspaceModal();
   const popMsg = !window.localStorage.getItem("anythingllm_intro");
-  const { t } = useTranslation();
+  const { t } = useTranslation(); // 다국어 지원
 
+  // 웰컴 메시지 로드
   useEffect(() => {
     const fetchData = async () => {
       const fetchedMessages = await System.getWelcomeMessages();
@@ -175,6 +180,7 @@ export default function DefaultChatContainer() {
     </React.Fragment>,
   ];
 
+  // 메시지 처리 및 표시 로직
   useEffect(() => {
     function processMsgs() {
       if (!!window.localStorage.getItem("anythingllm_intro")) {
@@ -232,6 +238,7 @@ export default function DefaultChatContainer() {
   );
 }
 
+// 메시지 컨테이너 컴포넌트
 function MessageContainer({ children }) {
   return (
     <div className="flex justify-center items-end w-full">
@@ -242,10 +249,12 @@ function MessageContainer({ children }) {
   );
 }
 
+// 메시지 내용 컴포넌트
 function MessageContent({ children }) {
   return <div className="flex gap-x-5">{children}</div>;
 }
 
+// 메시지 텍스트 컴포넌트
 function MessageText({ children }) {
   return (
     <span className="text-white/80 light:text-theme-text-primary font-light text-[14px] flex flex-col gap-y-1 mt-2">
