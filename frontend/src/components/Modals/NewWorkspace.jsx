@@ -86,12 +86,9 @@ export default function NewWorkspaceModal({ hideModal = noop }) {
 
 export function useNewWorkspaceModal() {
   const [showing, setShowing] = useState(false);
-  const showModal = () => {
-    setShowing(true);
+  return {
+    showing,
+    showModal: () => setShowing(true),
+    hideModal: () => setShowing(false)
   };
-  const hideModal = () => {
-    setShowing(false);
-  };
-
-  return { showing, showModal, hideModal };
 }

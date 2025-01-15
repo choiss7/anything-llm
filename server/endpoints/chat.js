@@ -90,7 +90,7 @@ function chatEndpoints(app) {
             workspaceName: workspace?.name,
             chatModel: workspace?.chatModel || "System Default",
             input: { message, attachments },
-         
+
             output: "Chat sent successfully.",
             systemPrompt, // 추가된 systemPrompt
           },
@@ -208,7 +208,7 @@ function chatEndpoints(app) {
             workspaceName: workspace.name,
             thread: thread.name,
             chatModel: workspace?.chatModel || "System Default",
-            input: { message, attachments },           
+            input: { message, attachments },
             output: "Chat sent successfully.",
             systemPrompt, // 추가된 systemPrompt
           },
