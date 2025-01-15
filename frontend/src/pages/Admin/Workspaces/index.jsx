@@ -13,6 +13,8 @@ import CTAButton from "@/components/lib/CTAButton";
 
 export default function AdminWorkspaces() {
   const { isOpen, openModal, closeModal } = useModal();
+  const [workspaces, setWorkspaces] = useState([]);
+  const [loading, setLoading] = useState(true);
 
   return (
     <div className="w-screen h-screen overflow-hidden bg-theme-bg-container flex">

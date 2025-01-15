@@ -14,10 +14,11 @@ import { useTranslation } from "react-i18next";
 import { useSidebarToggle, ToggleSidebarButton } from "./SidebarToggle";
 
 export default function Sidebar() {
+  const [showSidebar, setShowSidebar] = useState(false);
   const { user } = useUser();
   const { logo } = useLogo();
   const sidebarRef = useRef(null);
-  const { showSidebar, setShowSidebar, canToggleSidebar } = useSidebarToggle();
+  const { showSidebar: canToggleSidebar } = useSidebarToggle();
   const {
     showing: showingNewWsModal,
     showModal: showNewWsModal,
