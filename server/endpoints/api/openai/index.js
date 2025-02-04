@@ -12,6 +12,49 @@ const { EventLogs } = require("../../../models/eventLogs");
 const {
   OpenAICompatibleChat,
 } = require("../../../utils/chats/openaiCompatible");
+const fs = require('fs');
+const path = require('path');
+
+// EventLogs에 파일 로깅 기능 추가
+const originalLogEvent = EventLogs.logEvent;
+EventLogs.logEvent = async function(eventName, details) {
+  // 기존 로깅 실행
+  await originalLogEvent.call(this, eventName, details);
+  
+  // 파일 로깅 추가
+  const logEntry = {
+    timestamp: new Date().toISOString(),
+    event: eventName,
+    details: details
+  };
+  
+  try {
+    // 절대 경로로 logs 디렉토리 지정
+    const logDir = path.resolve(__dirname, '../../../logs');
+    console.log('Creating log directory at:', logDir); // 디버깅용 로그
+    
+    // 디렉토리가 없으면 생성
+    if (!fs.existsSync(logDir)) {
+      fs.mkdirSync(logDir, { recursive: true });
+      console.log('Log directory created successfully'); // 디버깅용 로그
+    }
+    
+    const logPath = path.join(logDir, 'chat.log');
+    fs.appendFileSync(
+      logPath,
+      JSON.stringify(logEntry, null, 2) + '\n---\n',
+      'utf8'
+    );
+    console.log('Log written to:', logPath); // 디버깅용 로그
+  } catch (error) {
+    console.error('Failed to write to log file:', error);
+    console.error('Error details:', {
+      errorName: error.name,
+      errorMessage: error.message,
+      errorStack: error.stack
+    });
+  }
+};
 
 /**
  * OpenAI 호환 API 엔드포인트를 정의하며,
@@ -80,37 +123,53 @@ function apiOpenAICompatibleEndpoints(app) {
           stream = false,
         } = reqBody(request);
 
+        // 1. 프론트엔드로부터 받은 요청 로깅
+        await EventLogs.logEvent("frontend_request", {
+          timestamp: new Date().toISOString(),
+          endpoint: "/v1/openai/chat/completions",
+          requestBody: {
+            model,
+            messages,
+            temperature,
+            stream
+          }
+        });
+
         const workspace = await Workspace.get({ slug: String(model) });
         if (!workspace) {
-          await EventLogs.logEvent("api_chat_invalid_workspace", {
-            request: { model, messages, temperature, stream },
+          await EventLogs.logEvent("workspace_error", {
+            error: "Invalid workspace",
+            requestedModel: model
           });
           return response.status(401).end();
         }
 
-        const userMessage = messages.pop();
-        if (userMessage.role !== "user") {
-          const errorResponse = {
-            id: uuidv4(),
-            type: "abort",
-            textResponse: null,
-            sources: [],
-            close: true,
-            error:
-              "No user prompt found. Must be last element in message array with 'user' role.",
-          };
-          await EventLogs.logEvent("api_chat_invalid_message", {
-            request: { model, messages, temperature, stream },
-            response: errorResponse,
-          });
-          return response.status(400).json(errorResponse);
-        }
+        // 2. LLM 설정 정보 로깅
+        await EventLogs.logEvent("llm_config", {
+          provider: workspace.chatProvider,
+          model: workspace.chatModel,
+          workspace: workspace.name
+        });
 
-        const systemPrompt =
-          messages.find((chat) => chat.role === "system")?.content ?? null;
+        const userMessage = messages.pop();
+        const systemPrompt = messages.find((chat) => chat.role === "system")?.content ?? null;
         const history = messages.filter((chat) => chat.role !== "system") ?? [];
 
+        // 3. LLM으로 보내는 요청 로깅
+        await EventLogs.logEvent("llm_request", {
+          timestamp: new Date().toISOString(),
+          provider: workspace.chatProvider,
+          model: workspace.chatModel,
+          request: {
+            systemPrompt,
+            history,
+            userMessage: userMessage.content,
+            temperature: Number(temperature)
+          }
+        });
+
         if (!stream) {
+          // 동기 응답 처리
           const chatResult = await OpenAICompatibleChat.chatSync({
             workspace,
             systemPrompt,
@@ -119,19 +178,57 @@ function apiOpenAICompatibleEndpoints(app) {
             temperature: Number(temperature),
           });
 
-          await EventLogs.logEvent("api_chat_completion", {
-            request: { model, messages, temperature, stream },
+          // 4. LLM으로부터 받은 응답 로깅
+          await EventLogs.logEvent("llm_response", {
+            timestamp: new Date().toISOString(),
+            provider: workspace.chatProvider,
+            model: workspace.chatModel,
             response: chatResult,
+            tokensUsed: chatResult.usage || 'N/A'
+          });
+
+          const aiResponse = chatResult.choices?.[0]?.message?.content || chatResult.text || "No response";
+
+          // 5. 프론트엔드로 보내는 최종 응답 로깅
+          await EventLogs.logEvent("frontend_response", {
+            timestamp: new Date().toISOString(),
+            type: "sync",
+            response: {
+              workspaceName: workspace.name,
+              chatModel: workspace.chatModel,
+              input: {
+                message: userMessage.content,
+                attachments: []
+              },
+              output: aiResponse,
+              systemPrompt,
+              history: history.map(chat => ({
+                role: chat.role,
+                content: chat.content,
+                timestamp: chat.timestamp || new Date().toISOString()
+              }))
+            }
           });
 
           return response.status(200).json(chatResult);
         }
 
+        // 스트리밍 응답 처리
         response.setHeader("Cache-Control", "no-cache");
         response.setHeader("Content-Type", "text/event-stream");
         response.setHeader("Access-Control-Allow-Origin", "*");
         response.setHeader("Connection", "keep-alive");
         response.flushHeaders();
+
+        let streamedResponse = '';
+        let streamStartTime = new Date().toISOString();
+
+        // 6. 스트리밍 시작 로깅
+        await EventLogs.logEvent("stream_start", {
+          timestamp: streamStartTime,
+          provider: workspace.chatProvider,
+          model: workspace.chatModel
+        });
 
         await OpenAICompatibleChat.streamChat({
           workspace,
@@ -140,17 +237,47 @@ function apiOpenAICompatibleEndpoints(app) {
           prompt: userMessage.content,
           temperature: Number(temperature),
           response,
+          onChunk: (chunk) => {
+            if (chunk?.choices?.[0]?.delta?.content) {
+              const content = chunk.choices[0].delta.content;
+              streamedResponse += content;
+
+              // 7. 각 청크 로깅
+              EventLogs.logEvent("stream_chunk", {
+                timestamp: new Date().toISOString(),
+                chunkContent: content,
+                provider: workspace.chatProvider,
+                model: workspace.chatModel
+              });
+            }
+          }
         });
 
-        await EventLogs.logEvent("api_chat_stream_completion", {
-          request: { model, messages, temperature, stream },
+        // 8. 스트리밍 완료 로깅
+        await EventLogs.logEvent("stream_complete", {
+          timestamp: new Date().toISOString(),
+          streamStartTime,
+          provider: workspace.chatProvider,
+          model: workspace.chatModel,
+          finalResponse: streamedResponse,
+          history: history.map(chat => ({
+            role: chat.role,
+            content: chat.content,
+            timestamp: chat.timestamp || new Date().toISOString()
+          }))
         });
+
         response.end();
       } catch (e) {
+        // 9. 에러 로깅
         console.error(e.message, e);
-        await EventLogs.logEvent("api_chat_error", {
-          request: reqBody(request),
-          error: e.message,
+        await EventLogs.logEvent("error", {
+          timestamp: new Date().toISOString(),
+          error: {
+            message: e.message,
+            stack: e.stack,
+            request: reqBody(request)
+          }
         });
         response.status(500).end();
       }
