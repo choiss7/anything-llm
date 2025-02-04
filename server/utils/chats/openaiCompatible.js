@@ -4,8 +4,226 @@ const { WorkspaceChats } = require("../../models/workspaceChats");
 const { getVectorDbClass, getLLMProvider } = require("../helpers");
 const { writeResponseChunk } = require("../helpers/chat/responses");
 const { chatPrompt, sourceIdentifier } = require("./index");
+const { EventLogs } = require("../../models/eventLogs");
 
 const { PassThrough } = require("stream");
+
+class OpenAICompatibleChat {
+  static async chatSync({ workspace, systemPrompt, history, prompt, temperature }) {
+    try {
+      const provider = workspace?.chatProvider ?? process.env.LLM_PROVIDER;
+      const LLMProvider = getLLMProvider({
+        provider,
+        model: workspace?.chatModel,
+      });
+
+      // LLM 요청 시작 로깅
+      await EventLogs.logEvent("llm_request_start", {
+        timestamp: new Date().toISOString(),
+        provider,
+        model: workspace?.chatModel,
+        request: {
+          systemPrompt,
+          prompt,
+          history,
+          temperature
+        }
+      });
+
+      // 기존 chatSync 함수의 로직을 여기로 이동
+      const uuid = uuidv4();
+      const chatMode = workspace?.chatMode ?? "chat";
+      const VectorDb = getVectorDbClass();
+      
+      // Vector 검색 결과 로깅
+      const contextResults = await getContextAndSources(workspace, prompt, LLMProvider);
+      await EventLogs.logEvent("vector_search_results", {
+        timestamp: new Date().toISOString(),
+        results: contextResults
+      });
+
+      // LLM에 보낼 메시지 준비
+      const messages = await LLMProvider.compressMessages({
+        systemPrompt: systemPrompt ?? chatPrompt(workspace),
+        userPrompt: prompt,
+        contextTexts: contextResults.contextTexts,
+        chatHistory: history,
+      });
+
+      // LLM 호출
+      const { textResponse, metrics } = await LLMProvider.getChatCompletion(
+        messages,
+        {
+          temperature: temperature ?? workspace?.openAiTemp ?? LLMProvider.defaultTemp,
+        }
+      );
+
+      // LLM 응답 로깅
+      await EventLogs.logEvent("llm_response", {
+        timestamp: new Date().toISOString(),
+        provider,
+        model: workspace?.chatModel,
+        response: textResponse,
+        metrics,
+        sources: contextResults.sources
+      });
+
+      // 채팅 저장
+      const { chat } = await WorkspaceChats.new({
+        workspaceId: workspace.id,
+        prompt: prompt,
+        response: { 
+          text: textResponse, 
+          sources: contextResults.sources, 
+          type: chatMode,
+          metrics 
+        },
+      });
+
+      // 최종 응답 로깅
+      await EventLogs.logEvent("chat_completion", {
+        timestamp: new Date().toISOString(),
+        chatId: chat.id,
+        workspaceName: workspace.name,
+        provider,
+        model: workspace?.chatModel,
+        input: {
+          message: prompt,
+          systemPrompt,
+          history
+        },
+        output: textResponse,
+        metrics,
+        sources: contextResults.sources
+      });
+
+      return formatJSON(
+        {
+          id: uuid,
+          type: "textResponse",
+          close: true,
+          error: null,
+          chatId: chat.id,
+          textResponse,
+          sources: contextResults.sources,
+        },
+        { model: workspace.slug, finish_reason: "stop", usage: metrics }
+      );
+
+    } catch (error) {
+      console.error("Error in chatSync:", error);
+      await EventLogs.logEvent("chat_error", {
+        timestamp: new Date().toISOString(),
+        error: {
+          message: error.message,
+          stack: error.stack
+        }
+      });
+      throw error;
+    }
+  }
+
+  // Vector 검색 결과를 가져오는 헬퍼 함수
+  static async getContextAndSources(workspace, prompt, LLMProvider) {
+    const VectorDb = getVectorDbClass();
+    let contextTexts = [];
+    let sources = [];
+    let pinnedDocIdentifiers = [];
+
+    // 고정된 문서 처리
+    await new DocumentManager({
+      workspace,
+      maxTokens: LLMProvider.promptWindowLimit(),
+    })
+      .pinnedDocs()
+      .then((pinnedDocs) => {
+        pinnedDocs.forEach((doc) => {
+          const { pageContent, ...metadata } = doc;
+          pinnedDocIdentifiers.push(sourceIdentifier(doc));
+          contextTexts.push(doc.pageContent);
+          sources.push({
+            text: pageContent.slice(0, 1_000) + "...continued on in source document...",
+            ...metadata,
+          });
+        });
+      });
+
+    // Vector 검색 수행
+    const vectorSearchResults = await VectorDb.performSimilaritySearch({
+      namespace: workspace.slug,
+      input: prompt,
+      LLMConnector: LLMProvider,
+      similarityThreshold: workspace?.similarityThreshold,
+      topN: workspace?.topN,
+      filterIdentifiers: pinnedDocIdentifiers,
+      rerank: workspace?.vectorSearchMode === "rerank",
+    });
+
+    return {
+      contextTexts: [...contextTexts, ...vectorSearchResults.contextTexts],
+      sources: [...sources, ...vectorSearchResults.sources]
+    };
+  }
+
+  static async streamChat({ workspace, systemPrompt, history, prompt, temperature, response, onChunk }) {
+    try {
+      const provider = workspace?.chatProvider ?? process.env.LLM_PROVIDER;
+      const LLMProvider = getLLMProvider({
+        provider,
+        model: workspace?.chatModel,
+      });
+
+      // 스트리밍 시작 로깅
+      await EventLogs.logEvent("llm_stream_start", {
+        timestamp: new Date().toISOString(),
+        provider,
+        model: workspace?.chatModel,
+        request: {
+          systemPrompt,
+          prompt,
+          temperature
+        }
+      });
+
+      let fullResponse = '';
+      
+      await LLMProvider.streamChat(
+        systemPrompt,
+        history,
+        prompt,
+        temperature,
+        response,
+        (chunk) => {
+          if (chunk?.choices?.[0]?.delta?.content) {
+            const content = chunk.choices[0].delta.content;
+            fullResponse += content;
+            
+            // 청크 로깅
+            EventLogs.logEvent("llm_stream_chunk", {
+              timestamp: new Date().toISOString(),
+              provider,
+              model: workspace?.chatModel,
+              chunk: content
+            });
+          }
+          if (onChunk) onChunk(chunk);
+        }
+      );
+
+      // 스트리밍 완료 로깅
+      await EventLogs.logEvent("llm_stream_complete", {
+        timestamp: new Date().toISOString(),
+        provider,
+        model: workspace?.chatModel,
+        fullResponse
+      });
+
+    } catch (error) {
+      console.error("Error in streamChat:", error);
+      throw error;
+    }
+  }
+}
 
 async function chatSync({
   workspace,
@@ -495,7 +713,4 @@ function formatJSON(
   return data;
 }
 
-module.exports.OpenAICompatibleChat = {
-  chatSync,
-  streamChat,
-};
+module.exports.OpenAICompatibleChat = OpenAICompatibleChat;
